@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
-import { auth } from "@/lib/auth";
-import { db } from "@/db";
+import type { Db } from "@/db";
 import { collaboratorInviteTable, collaboratorTable } from "@/db/schema";
+import { getRequestContext } from "@/lib/request-context";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,7 @@ type InviteState =
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
-const getInvite = async (token: string) => {
+const getInvite = async (db: Db, token: string) => {
   const invite = await db.query.collaboratorInviteTable.findFirst({
     where: eq(collaboratorInviteTable.token, token),
   });
@@ -63,6 +63,7 @@ const maskEmail = (email: string) => {
 };
 
 const claimInvite = async (
+  db: Db,
   invite: typeof collaboratorInviteTable.$inferSelect,
   user: { id: string; email: string },
 ) => {
@@ -93,7 +94,8 @@ export async function GET(
   context: { params: Promise<{ token: string }> },
 ) {
   const { token } = await context.params;
-  const invite = await getInvite(token);
+  const { db, auth } = getRequestContext();
+  const invite = await getInvite(db, token);
   if (!invite) {
     return Response.json({ status: "unavailable" } satisfies InviteState);
   }
@@ -112,7 +114,7 @@ export async function GET(
     } satisfies InviteState);
   }
 
-  const claimed = await claimInvite(invite, session.user);
+  const claimed = await claimInvite(db, invite, session.user);
   if (!claimed) {
     return Response.json({ status: "wrong_account" } satisfies InviteState);
   }
@@ -128,7 +130,8 @@ export async function POST(
   context: { params: Promise<{ token: string }> },
 ) {
   const { token } = await context.params;
-  const invite = await getInvite(token);
+  const { db, auth } = getRequestContext();
+  const invite = await getInvite(db, token);
   if (!invite) {
     return Response.json({ status: "unavailable" } satisfies InviteState, {
       status: 404,
@@ -144,7 +147,7 @@ export async function POST(
     });
   }
 
-  const claimed = await claimInvite(invite, session.user);
+  const claimed = await claimInvite(db, invite, session.user);
   if (!claimed) {
     return Response.json({ status: "wrong_account" } satisfies InviteState, {
       status: 403,

@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNull, isNotNull, ne } from "drizzle-orm";
-import { db } from "@/db";
+import type { Db } from "@/db";
 import { actionRunTable } from "@/db/schema";
 import { createOctokitInstance } from "@/lib/utils/octokit";
 import { getToken } from "@/lib/token";
@@ -7,6 +7,7 @@ import { createHttpError, toErrorResponse } from "@/lib/api-error";
 import { requireApiUserSession } from "@/lib/session-server";
 import { resolveActionRef } from "@/lib/actions";
 import { hasGithubIdentity } from "@/lib/authz-shared";
+import { getRequestContext } from "@/lib/request-context";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -81,6 +82,7 @@ const findWorkflowRun = async (
 };
 
 const getClaimedWorkflowRunIds = async (
+  db: Db,
   owner: string,
   repo: string,
   workflow: string,
@@ -130,11 +132,13 @@ const buildContextWhere = ({
 );
 
 const syncActionRun = async (
+  db: Db,
   octokit: ReturnType<typeof createOctokitInstance>,
   row: typeof actionRunTable.$inferSelect,
 ) => {
   if (!row.workflowRunId) {
     const claimedRunIds = await getClaimedWorkflowRunIds(
+      db,
       row.owner,
       row.repo,
       row.workflow,
@@ -198,11 +202,12 @@ export async function GET(
 ) {
   try {
     const params = await context.params;
-    const sessionResult = await requireApiUserSession();
+    const { db, auth } = getRequestContext();
+    const sessionResult = await requireApiUserSession(auth);
     if ("response" in sessionResult) return sessionResult.response;
     const user = sessionResult.user;
     const isGithubUser = hasGithubIdentity(user);
-    const { token } = await getToken(user, params.owner, params.repo, true);
+    const { token } = await getToken(db, user, params.owner, params.repo, true);
     const octokit = createOctokitInstance(token);
 
     const url = new URL(request.url);
@@ -242,7 +247,7 @@ export async function GET(
 
     if (listAll) {
       const topRows = rows.slice(0, 100);
-      const syncedRows = await Promise.all(topRows.map((row) => syncActionRun(octokit, row)));
+      const syncedRows = await Promise.all(topRows.map((row) => syncActionRun(db, octokit, row)));
 
       return Response.json({
         status: "success",
@@ -290,7 +295,7 @@ export async function GET(
       await Promise.all(
         Object.entries(topRowsByAction).map(async ([actionName, actionRows]) => {
           const syncedRows = await Promise.all(
-            actionRows.map((row) => syncActionRun(octokit, row)),
+            actionRows.map((row) => syncActionRun(db, octokit, row)),
           );
           return [actionName, syncedRows] as const;
         }),
@@ -346,11 +351,12 @@ export async function POST(
 ) {
   try {
     const params = await context.params;
-    const sessionResult = await requireApiUserSession();
+    const { db, auth } = getRequestContext();
+    const sessionResult = await requireApiUserSession(auth);
     if ("response" in sessionResult) return sessionResult.response;
     const user = sessionResult.user;
 
-    const { token } = await getToken(user, params.owner, params.repo, true);
+    const { token } = await getToken(db, user, params.owner, params.repo, true);
     const octokit = createOctokitInstance(token);
 
     const body = (await request.json()) as {
@@ -443,6 +449,7 @@ export async function POST(
       workflowRef,
       timestamp.toISOString(),
       await getClaimedWorkflowRunIds(
+        db,
         params.owner,
         params.repo,
         action.workflow,

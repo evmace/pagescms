@@ -1,8 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { and, eq, sql } from "drizzle-orm";
-import { db } from "../../index";
+import { createDb } from "../../index";
 import { collaboratorTable, userTable } from "../../schema";
+
+const db = createDb(process.env.DATABASE_URL!);
 import { parseCsv } from "./csv";
 
 const getArgValue = (name: string): string | undefined => {

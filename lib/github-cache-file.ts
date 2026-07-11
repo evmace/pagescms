@@ -2,7 +2,7 @@
  * Manage cached GitHub repository snapshots, branch heads, and file/media trees.
  */
 
-import { db } from "@/db";
+import type { Db } from "@/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { cacheFileMetaTable, cacheFileTable } from "@/db/schema";
 import { createOctokitInstance } from "@/lib/utils/octokit";
@@ -237,6 +237,7 @@ const cacheFileReconcileInFlight = new Map<string, Promise<void>>();
 const cacheFileCheckTTLms = parseInt(CACHE_RECONCILE_INTERVAL_MIN, 10) * 60 * 1000;
 
 const reconcileFileCache = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -251,7 +252,7 @@ const reconcileFileCache = async (
     try {
       const head = await getBranchHeadInfo(owner, repo, branch, token);
 
-      await upsertCacheFileMeta(owner, repo, branch, {
+      await upsertCacheFileMeta(db, owner, repo, branch, {
         path: BRANCH_CACHE_SCOPE.path,
         context: BRANCH_CACHE_SCOPE.context,
         commitSha: head.sha,
@@ -260,7 +261,7 @@ const reconcileFileCache = async (
         error: null,
       });
     } catch (error: any) {
-      await upsertCacheFileMeta(owner, repo, branch, {
+      await upsertCacheFileMeta(db, owner, repo, branch, {
         path: BRANCH_CACHE_SCOPE.path,
         context: BRANCH_CACHE_SCOPE.context,
         status: "error",
@@ -277,26 +278,28 @@ const reconcileFileCache = async (
 };
 
 const ensureFileCacheFreshness = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
   token: string,
   options?: { force?: boolean }
 ) => {
-  const meta = await getCacheFileMeta(owner, repo, branch, BRANCH_CACHE_SCOPE);
+  const meta = await getCacheFileMeta(db, owner, repo, branch, BRANCH_CACHE_SCOPE);
   const due =
     options?.force ||
     !meta?.lastCheckedAt ||
     Date.now() - meta.lastCheckedAt.getTime() > cacheFileCheckTTLms;
 
   if (!due) return;
-  await reconcileFileCache(owner, repo, branch, token);
+  await reconcileFileCache(db, owner, repo, branch, token);
 };
 
 const getDirectFolderPaths = (filePaths: string[]) =>
   Array.from(new Set(filePaths.map((filePath) => getParentPath(filePath))));
 
 const getVerifiedDirectFolderContexts = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -332,6 +335,7 @@ const getVerifiedDirectFolderContexts = async (
 };
 
 const finalizePatchedFolderMetas = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -361,7 +365,7 @@ const finalizePatchedFolderMetas = async (
 
   await Promise.all(
     keptPaths.map((folderPath) =>
-      upsertScopedMeta(owner, repo, branch, getFolderScope(contextByPath.get(folderPath)!, folderPath), {
+      upsertScopedMeta(db, owner, repo, branch, getFolderScope(contextByPath.get(folderPath)!, folderPath), {
         commitSha: commit.sha,
         commitTimestamp: new Date(commit.timestamp),
         status: "ok",
@@ -374,6 +378,7 @@ const finalizePatchedFolderMetas = async (
 };
 
 const setBranchCacheToCommit = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -381,7 +386,7 @@ const setBranchCacheToCommit = async (
 ) => {
   if (!commit) return;
 
-  await upsertCacheFileMeta(owner, repo, branch, {
+  await upsertCacheFileMeta(db, owner, repo, branch, {
     path: BRANCH_CACHE_SCOPE.path,
     context: BRANCH_CACHE_SCOPE.context,
     commitSha: commit.sha,
@@ -402,6 +407,7 @@ const hasVerifiedFolderSnapshot = (
 
 // Bulk update cache entries (removed, modified and added files)
 const updateMultipleFilesCache = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -423,7 +429,7 @@ const updateMultipleFilesCache = async (
   const affectedFolderPaths = getFolderPathsForChanges(changedPaths);
   const directFolderPaths = getDirectFolderPaths(changedPaths);
   const verifiedDirectFolderContexts = commit
-    ? await getVerifiedDirectFolderContexts(owner, repo, branch, directFolderPaths)
+    ? await getVerifiedDirectFolderContexts(db, owner, repo, branch, directFolderPaths)
     : new Map<string, FolderContext>();
   const verifiedDirectFolderPaths = Array.from(verifiedDirectFolderContexts.keys());
   const collectionFolderPaths = verifiedDirectFolderPaths.filter(
@@ -437,15 +443,15 @@ const updateMultipleFilesCache = async (
   if (verifiedDirectFolderPaths.length > 0) {
     const [claimedCollection, claimedMedia] = await Promise.all([
       collectionFolderPaths.length > 0
-        ? claimFolderScopes(owner, repo, branch, "collection", collectionFolderPaths)
+        ? claimFolderScopes(db, owner, repo, branch, "collection", collectionFolderPaths)
         : Promise.resolve(true),
       mediaFolderPaths.length > 0
-        ? claimFolderScopes(owner, repo, branch, "media", mediaFolderPaths)
+        ? claimFolderScopes(db, owner, repo, branch, "media", mediaFolderPaths)
         : Promise.resolve(true),
     ]);
 
     if (!claimedCollection || !claimedMedia) {
-      await invalidateFolderScopes(owner, repo, branch, affectedFolderPaths);
+      await invalidateFolderScopes(db, owner, repo, branch, affectedFolderPaths);
       return;
     }
   }
@@ -576,6 +582,7 @@ const updateMultipleFilesCache = async (
   }
 
   const preservedDirectFolderPaths = await finalizePatchedFolderMetas(
+    db,
     owner,
     repo,
     branch,
@@ -584,19 +591,20 @@ const updateMultipleFilesCache = async (
     failedDirectFolderPaths,
   );
 
-  await setBranchCacheToCommit(owner, repo, branch, commit);
+  await setBranchCacheToCommit(db, owner, repo, branch, commit);
 
   const invalidatedPaths = affectedFolderPaths.filter(
     (folderPath) => !preservedDirectFolderPaths.has(folderPath),
   );
 
   if (invalidatedPaths.length > 0) {
-    await invalidateFolderScopes(owner, repo, branch, invalidatedPaths);
+    await invalidateFolderScopes(db, owner, repo, branch, invalidatedPaths);
   }
 };
 
 // Update the cache for an individual file (add, modify, delete, rename).
 const updateFileCache = async (
+  db: Db,
   context: string,
   owner: string,
   repo: string,
@@ -616,7 +624,7 @@ const updateFileCache = async (
     : parentPath;
   const directFolderPaths = Array.from(new Set([parentPath, newParentPath]));
   const verifiedDirectFolderContexts = operation.commit
-    ? await getVerifiedDirectFolderContexts(owner, repo, branch, directFolderPaths)
+    ? await getVerifiedDirectFolderContexts(db, owner, repo, branch, directFolderPaths)
     : new Map<string, FolderContext>();
   const preservedDirectFolderPaths = new Set<string>();
   const failedDirectFolderPaths = new Set<string>();
@@ -634,6 +642,7 @@ const updateFileCache = async (
 
   if (foldersToClaim.length > 0) {
     const claimed = await claimFolderScopes(
+      db,
       owner,
       repo,
       branch,
@@ -641,7 +650,7 @@ const updateFileCache = async (
       foldersToClaim,
     );
     if (!claimed) {
-      await invalidateFolderScopes(owner, repo, branch, affectedFolderPaths);
+      await invalidateFolderScopes(db, owner, repo, branch, affectedFolderPaths);
       return;
     }
   }
@@ -716,6 +725,7 @@ const updateFileCache = async (
   } catch (error: any) {
     await Promise.all(Array.from(affectedFolderPaths).map((folderPath) =>
       markFolderScopeError(
+        db,
         owner,
         repo,
         branch,
@@ -729,6 +739,7 @@ const updateFileCache = async (
 
   if (foldersToClaim.length > 0) {
     const keptPaths = await finalizePatchedFolderMetas(
+      db,
       owner,
       repo,
       branch,
@@ -739,20 +750,21 @@ const updateFileCache = async (
     keptPaths.forEach((folderPath) => preservedDirectFolderPaths.add(folderPath));
   }
 
-  await setBranchCacheToCommit(owner, repo, branch, operation.commit);
+  await setBranchCacheToCommit(db, owner, repo, branch, operation.commit);
 
   if (affectedFolderPaths.length > 0) {
     const invalidatedPaths = affectedFolderPaths.filter(
       (folderPath) => !preservedDirectFolderPaths.has(folderPath),
     );
     if (invalidatedPaths.length > 0) {
-      await invalidateFolderScopes(owner, repo, branch, invalidatedPaths);
+      await invalidateFolderScopes(db, owner, repo, branch, invalidatedPaths);
     }
   }
 };
 
 // Update repository name in all cache entries
 const updateFileCacheRepository = async (
+  db: Db,
   owner: string,
   oldName: string,
   newName: string
@@ -769,6 +781,7 @@ const updateFileCacheRepository = async (
 
 // Update owner name in all cache entries
 const updateFileCacheOwner = async (
+  db: Db,
   oldOwner: string,
   newOwner: string
 ) => {
@@ -781,6 +794,7 @@ const updateFileCacheOwner = async (
 
 // Clear file cache entries
 const clearFileCache = async (
+  db: Db,
   owner: string,
   repo?: string,
   branch?: string
@@ -797,6 +811,7 @@ const clearFileCache = async (
 
 // Attempt to get a collection from cache, if not found, fetch from GitHub.
 const getCollectionCache = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -804,9 +819,10 @@ const getCollectionCache = async (
   token: string,
   nodeEntryFilename?: string
 ) => {
-  void ensureFileCacheFreshness(owner, repo, branch, token).catch(() => {});
+  void ensureFileCacheFreshness(db, owner, repo, branch, token).catch(() => {});
   const scope = getFolderScope("collection", dirPath);
   const { scopeMeta: stableMeta, branchMeta } = await waitForScopeAndBranchMeta(
+    db,
     owner,
     repo,
     branch,
@@ -864,7 +880,7 @@ const getCollectionCache = async (
     (entries.length > 0 && entries[0].context === 'media');
 
   if (stableMeta?.status !== "syncing" && shouldRefetch) {
-    await upsertScopedMeta(owner, repo, branch, scope, {
+    await upsertScopedMeta(db, owner, repo, branch, scope, {
       status: "syncing",
       error: null,
     });
@@ -890,10 +906,11 @@ const getCollectionCache = async (
         commitTimestamp: new Date(head.timestamp),
       }));
 
-      await replaceFolderCache(owner, repo, branch, scope, mappedEntries, head);
+      await replaceFolderCache(db, owner, repo, branch, scope, mappedEntries, head);
       entries = mappedEntries;
     } catch (error: any) {
       await markFolderScopeError(
+        db,
         owner,
         repo,
         branch,
@@ -992,6 +1009,7 @@ const getCollectionCache = async (
 
 // Attempt to get a media folder from cache, if not found, fetch from GitHub.
 const getMediaCache = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -999,11 +1017,11 @@ const getMediaCache = async (
   token: string,
   nocache?: boolean
 ) => {
-  void ensureFileCacheFreshness(owner, repo, branch, token).catch(() => {});
+  void ensureFileCacheFreshness(db, owner, repo, branch, token).catch(() => {});
   const scope = getFolderScope("media", path);
   const metaState = nocache
     ? { scopeMeta: null, branchMeta: null }
-    : await waitForScopeAndBranchMeta(owner, repo, branch, scope);
+    : await waitForScopeAndBranchMeta(db, owner, repo, branch, scope);
   const stableMeta = metaState.scopeMeta;
   const branchMeta = metaState.branchMeta;
   const hasVerifiedSnapshot = !!nocache || hasVerifiedFolderSnapshot(stableMeta, branchMeta);
@@ -1084,11 +1102,11 @@ const getMediaCache = async (
       }));
 
       if (!nocache) {
-        await upsertScopedMeta(owner, repo, branch, scope, {
+        await upsertScopedMeta(db, owner, repo, branch, scope, {
           status: "syncing",
           error: null,
         });
-        await replaceFolderCache(owner, repo, branch, scope, mappedEntries, head);
+        await replaceFolderCache(db, owner, repo, branch, scope, mappedEntries, head);
         entries = mappedEntries;
       } else {
         entries = mappedEntries;
@@ -1096,6 +1114,7 @@ const getMediaCache = async (
     } catch (error: any) {
       if (!nocache) {
         await markFolderScopeError(
+          db,
           owner,
           repo,
           branch,

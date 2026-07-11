@@ -1,8 +1,10 @@
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { eq } from "drizzle-orm";
-import { db } from "../../index";
+import { createDb } from "../../index";
 import { collaboratorTable, userTable } from "../../schema";
+
+const db = createDb(process.env.DATABASE_URL!);
 import { stringifyCsv } from "./csv";
 
 const DEFAULT_OUTPUT = "collaborators-export.csv";

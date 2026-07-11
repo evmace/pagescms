@@ -1,7 +1,7 @@
 import "server-only";
 
 import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import type { Auth } from "@/lib/auth";
 import { createHttpError } from "@/lib/api-error";
 import type { User } from "@/types/user";
 
@@ -23,7 +23,7 @@ const hasAdminAccess = (user: Pick<User, "email"> | null | undefined) => {
   return Boolean(user && isBootstrapAdminEmail(user.email));
 };
 
-const requireAdminSession = async () => {
+const requireAdminSession = async (auth: Auth) => {
   const session = await auth.api.getSession({
     headers: await headers(),
   });

@@ -1,8 +1,8 @@
-import { db } from "@/db";
+import type { Db } from "@/db";
 import { actionRunTable } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
-const handleActionWebhookEvent = async (event: string | null, data: any) => {
+const handleActionWebhookEvent = async (db: Db, event: string | null, data: any) => {
   if (event !== "workflow_run") return false;
 
   const workflowRunId = data.workflow_run?.id;

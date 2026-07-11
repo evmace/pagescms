@@ -1,5 +1,5 @@
 import { and, eq, gt } from "drizzle-orm";
-import { db } from "@/db";
+import type { Db } from "@/db";
 import { cachePermissionTable } from "@/db/schema";
 import { createOctokitInstance } from "@/lib/utils/octokit";
 
@@ -10,6 +10,7 @@ const PERMISSIONS_CACHE_TTL_MIN =
   "60";
 
 const checkRepoAccess = async (
+  db: Db,
   token: string,
   owner: string,
   repo: string,
@@ -59,6 +60,7 @@ const checkRepoAccess = async (
 };
 
 const clearPermissionCache = async (
+  db: Db,
   owner: string,
   repo?: string,
   githubId?: number,

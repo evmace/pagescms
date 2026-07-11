@@ -1,5 +1,5 @@
 import { and, eq, isNull, or, sql } from "drizzle-orm";
-import { db } from "@/db";
+import type { Db } from "@/db";
 import { collaboratorInviteTable, collaboratorTable, userTable } from "@/db/schema";
 import type { User } from "@/types/user";
 
@@ -35,7 +35,7 @@ const collaboratorMatchesInvite = (email: string, owner: string, repo: string) =
   )
 );
 
-const findVerifiedUserByEmail = async (email: string) => {
+const findVerifiedUserByEmail = async (db: Db, email: string) => {
   return db.query.userTable.findFirst({
     where: and(
       sql`lower(${userTable.email}) = lower(${normalizeEmail(email)})`,
@@ -44,7 +44,7 @@ const findVerifiedUserByEmail = async (email: string) => {
   });
 };
 
-const bindCollaboratorInvitesToUser = async (user: Pick<User, "id" | "email" | "emailVerified">) => {
+const bindCollaboratorInvitesToUser = async (db: Db, user: Pick<User, "id" | "email" | "emailVerified">) => {
   if (!user.emailVerified) return;
 
   await db

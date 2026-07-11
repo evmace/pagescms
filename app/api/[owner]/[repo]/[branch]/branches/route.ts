@@ -2,6 +2,7 @@ import { createOctokitInstance } from "@/lib/utils/octokit";
 import { getToken } from "@/lib/token";
 import { createHttpError, toErrorResponse } from "@/lib/api-error";
 import { requireApiUserSession } from "@/lib/session-server";
+import { getRequestContext } from "@/lib/request-context";
 
 /**
  * Creates a new branch in a GitHub repository.
@@ -17,11 +18,12 @@ export async function POST(
 ) {
   try {
     const params = await context.params;
-    const sessionResult = await requireApiUserSession();
+    const { db, auth } = getRequestContext();
+    const sessionResult = await requireApiUserSession(auth);
     if ("response" in sessionResult) return sessionResult.response;
     const user = sessionResult.user;
 
-    const { token } = await getToken(user, params.owner, params.repo, true);
+    const { token } = await getToken(db, user, params.owner, params.repo, true);
     if (!token) throw createHttpError("Token not found", 401);
 
     const data: any = await request.json();

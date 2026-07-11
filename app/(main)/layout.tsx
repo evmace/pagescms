@@ -8,6 +8,7 @@ import { GithubAuthExpired } from "@/components/github-auth-expired";
 import { isGithubAuthError } from "@/lib/github-auth";
 import { invalidateSessionForGithubAuthError } from "@/lib/github-auth-server";
 import { hasAdminAccess } from "@/lib/admin";
+import { getRequestContext } from "@/lib/request-context";
 
 export default async function Layout({
   children,
@@ -15,7 +16,8 @@ export default async function Layout({
   children: React.ReactNode;
 }>) {
   const requestHeaders = await headers();
-  const session = await getServerSession();
+  const { db, auth } = getRequestContext();
+  const session = await getServerSession(auth);
   const returnTo = requestHeaders.get("x-return-to");
   const signInUrl =
     returnTo && returnTo !== "/sign-in"
@@ -25,10 +27,10 @@ export default async function Layout({
 
   let accounts;
   try {
-    accounts = await getAccounts(session.user as User);
+    accounts = await getAccounts(db, session.user as User);
   } catch (error) {
     if (isGithubAuthError(error)) {
-      await invalidateSessionForGithubAuthError(session);
+      await invalidateSessionForGithubAuthError(db, session);
       return <GithubAuthExpired />;
     }
     throw error;

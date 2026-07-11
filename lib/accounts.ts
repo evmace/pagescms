@@ -2,7 +2,7 @@
  * Get the list of GitHub accounts the user (incl. collaborators) has access to.
  */
 
-import { db } from "@/db";
+import type { Db } from "@/db";
 import { collaboratorTable } from "@/db/schema";
 import { getInstallations } from "@/lib/github-app";
 import { User } from "@/types/user";
@@ -11,17 +11,17 @@ import { requireGithubUserToken } from "@/lib/authz-server";
 import { hasGithubIdentity } from "@/lib/authz-shared";
 import { collaboratorMatchesUser } from "@/lib/collaborator-access";
 
-const getAccounts = async (user: User) => {
+const getAccounts = async (db: Db, user: User) => {
 	let accounts: Array<{
     login: string;
     type: string;
     repositorySelection: string;
     installationId: number;
   }> = [];
-  const githubAccount = await getGithubAccount(user.id);
+  const githubAccount = await getGithubAccount(db, user.id);
 
 	if (githubAccount?.accessToken && hasGithubIdentity(user)) {
-		const token = await requireGithubUserToken(user);
+		const token = await requireGithubUserToken(db, user);
 		
 		const installations = await getInstallations(token);
 

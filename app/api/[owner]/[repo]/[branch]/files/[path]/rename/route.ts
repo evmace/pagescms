@@ -9,6 +9,7 @@ import { createHttpError, toErrorResponse } from "@/lib/api-error";
 import { getBranchHeadSha, setBranchHeadSha } from "@/lib/github-cache-file";
 import { buildCommitTokens, resolveCommitIdentity, resolveCommitMessage } from "@/lib/commit-message";
 import { requireApiUserSession } from "@/lib/session-server";
+import { getRequestContext } from "@/lib/request-context";
 
 /**
  * Renames a file in a GitHub repository.
@@ -24,18 +25,19 @@ export async function POST(
 ) {
   try {
     const params = await context.params;
-    const sessionResult = await requireApiUserSession();
+    const { db, auth } = getRequestContext();
+    const sessionResult = await requireApiUserSession(auth);
     if ("response" in sessionResult) return sessionResult.response;
     const user = sessionResult.user;
 
-    const { token } = await getToken(user, params.owner, params.repo, true);
+    const { token } = await getToken(db, user, params.owner, params.repo, true);
     if (!token) throw new Error("Token not found");
 
     if (!isContentOperationAllowed("rename", { scope: "settings" }) && params.path === ".pages.yml") {
       throw createHttpError(`Renaming the settings file isn't allowed.`, 403);
     }
 
-    const config = await getConfig(params.owner, params.repo, params.branch, {
+    const config = await getConfig(db, params.owner, params.repo, params.branch, {
       getToken: async () => token,
     });
     if (!config) throw new Error(`Configuration not found for ${params.owner}/${params.repo}/${params.branch}.`);
@@ -128,6 +130,7 @@ export async function POST(
 
     // Update the cache with the rename operation
     await updateFileCache(
+      db,
       data.type === 'content' ? 'collection' : 'media',
       params.owner,
       params.repo,

@@ -9,6 +9,7 @@ import { assertGithubIdentity } from "@/lib/authz-shared";
 import { getToken } from "@/lib/token";
 import { createHttpError, toErrorResponse } from "@/lib/api-error";
 import { requireApiUserSession } from "@/lib/session-server";
+import { getRequestContext } from "@/lib/request-context";
 
 /**
  * Fetches and parses individual file contents from GitHub repositories
@@ -26,11 +27,12 @@ export async function GET(
 ) {
   try {
     const params = await context.params;
-    const sessionResult = await requireApiUserSession();
+    const { db, auth } = getRequestContext();
+    const sessionResult = await requireApiUserSession(auth);
     if ("response" in sessionResult) return sessionResult.response;
     const user = sessionResult.user;
 
-    const { token } = await getToken(user, params.owner, params.repo);
+    const { token } = await getToken(db, user, params.owner, params.repo);
     if (!token) throw createHttpError("Token not found", 401);
 
     const searchParams = request.nextUrl.searchParams;
@@ -49,7 +51,7 @@ export async function GET(
     }
 
     if (!name && normalizedPath === ".pages.yml" && metaOnly) {
-      const cachedConfig = await getConfig(params.owner, params.repo, params.branch, {
+      const cachedConfig = await getConfig(db, params.owner, params.repo, params.branch, {
         getToken: async () => token,
       });
       return Response.json({
@@ -66,7 +68,7 @@ export async function GET(
     let schema;
 
     if (name) {
-      config = await getConfig(params.owner, params.repo, params.branch, {
+      config = await getConfig(db, params.owner, params.repo, params.branch, {
         getToken: async () => token,
       });
       if (!config) throw createHttpError(`Configuration not found for ${params.owner}/${params.repo}/${params.branch}.`, 404);

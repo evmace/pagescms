@@ -1,10 +1,10 @@
 import { type NextRequest } from "next/server";
 import { and, eq } from "drizzle-orm";
-import { db } from "@/db";
 import { collaboratorTable } from "@/db/schema";
 import { requireGithubRepoWriteAccess } from "@/lib/authz-server";
 import { createHttpError, toErrorResponse } from "@/lib/api-error";
 import { requireApiUserSession } from "@/lib/session-server";
+import { getRequestContext } from "@/lib/request-context";
 
 /**
  * Fetches collaborators for a repository.
@@ -20,7 +20,8 @@ export async function GET(
 ) {
   try {
     const params = await context.params;
-    const sessionResult = await requireApiUserSession();
+    const { db, auth } = getRequestContext();
+    const sessionResult = await requireApiUserSession(auth);
     if ("response" in sessionResult) return sessionResult.response;
 
     // TODO: support for branches and account collaborators
@@ -32,6 +33,7 @@ export async function GET(
 		const repo = params.slug[1];
 
     const { repoAccess } = await requireGithubRepoWriteAccess(
+      db,
       sessionResult.user,
       owner,
       repo,

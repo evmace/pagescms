@@ -10,6 +10,7 @@ import { invalidateSessionForGithubAuthError } from "@/lib/github-auth-server";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
+import { getRequestContext } from "@/lib/request-context";
 
 export default async function Layout({
   children,
@@ -20,7 +21,8 @@ export default async function Layout({
 }) {
   const { owner, repo } = await params;
   const requestHeaders = await headers();
-  const session = await getServerSession();
+  const { db, auth } = getRequestContext();
+  const session = await getServerSession(auth);
   const user = session?.user;
   const returnTo = requestHeaders.get("x-return-to");
   const signInUrl =
@@ -30,7 +32,7 @@ export default async function Layout({
   if (!user) return redirect(signInUrl);
 
   try {
-    const { token } = await getToken(user, owner, repo);
+    const { token } = await getToken(db, user, owner, repo);
     if (!token) throw new Error("Token not found");
 
     const repoInfo = await getRepoSnapshot(owner, repo, token);
@@ -59,7 +61,7 @@ export default async function Layout({
     );
   } catch (error: any) {
     if (isGithubAuthError(error)) {
-      await invalidateSessionForGithubAuthError(session);
+      await invalidateSessionForGithubAuthError(db, session);
       return <GithubAuthExpired />;
     }
 

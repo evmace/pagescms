@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { db } from "@/db";
+import type { Db } from "@/db";
 import { sessionTable } from "@/db/schema";
 
 type AuthSession = {
@@ -8,7 +8,7 @@ type AuthSession = {
   } | null;
 } | null | undefined;
 
-const invalidateSessionForGithubAuthError = async (session: AuthSession) => {
+const invalidateSessionForGithubAuthError = async (db: Db, session: AuthSession) => {
   const sessionId = session?.session?.id;
   if (!sessionId) return;
 

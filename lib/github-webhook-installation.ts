@@ -1,4 +1,4 @@
-import { db } from "@/db";
+import type { Db } from "@/db";
 import { cacheFileTable, collaboratorTable, githubInstallationTokenTable } from "@/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { clearFileCache, updateFileCacheOwner, updateFileCacheRepository } from "@/lib/github-cache-file";
@@ -30,6 +30,7 @@ const getAffectedParentPaths = (changedPaths: string[]) => {
 };
 
 const clearScopedFileCache = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -37,7 +38,7 @@ const clearScopedFileCache = async (
 ) => {
   const uniqueChangedPaths = Array.from(new Set(changedPaths.filter(Boolean)));
   const affectedParentPaths = getAffectedParentPaths(uniqueChangedPaths);
-  await deleteCacheFileMetaByPaths(owner, repo, branch, affectedParentPaths);
+  await deleteCacheFileMetaByPaths(db, owner, repo, branch, affectedParentPaths);
   const whereBase = and(
     eq(cacheFileTable.owner, owner.toLowerCase()),
     eq(cacheFileTable.repo, repo.toLowerCase()),
@@ -63,7 +64,7 @@ const clearScopedFileCache = async (
   }
 };
 
-const handleInstallationWebhookEvent = async (event: string | null, data: any) => {
+const handleInstallationWebhookEvent = async (db: Db, event: string | null, data: any) => {
   switch (event) {
     case "installation":
       if (data.action !== "deleted") return false;
@@ -82,8 +83,8 @@ const handleInstallationWebhookEvent = async (event: string | null, data: any) =
           db.delete(githubInstallationTokenTable).where(
             eq(githubInstallationTokenTable.installationId, data.installation.id),
           ),
-          clearFileCache(accountLogin),
-          deleteCacheFileMeta(accountLogin),
+          clearFileCache(db, accountLogin),
+          deleteCacheFileMeta(db, accountLogin),
         ]);
         return true;
       }
@@ -104,8 +105,8 @@ const handleInstallationWebhookEvent = async (event: string | null, data: any) =
             const [owner, repoName] = (repo.full_name || "").split("/");
             if (owner && repoName) {
               return Promise.all([
-                clearFileCache(owner, repoName),
-                deleteCacheFileMeta(owner, repoName),
+                clearFileCache(db, owner, repoName),
+                deleteCacheFileMeta(db, owner, repoName),
               ]);
             }
             return Promise.resolve();
@@ -129,8 +130,8 @@ const handleInstallationWebhookEvent = async (event: string | null, data: any) =
           db.delete(collaboratorTable).where(
             eq(collaboratorTable.repoId, repoId),
           ),
-          clearFileCache(owner, repoName),
-          deleteCacheFileMeta(owner, repoName),
+          clearFileCache(db, owner, repoName),
+          deleteCacheFileMeta(db, owner, repoName),
         ]);
       } else if (data.action === "transferred") {
         const oldOwner = data.changes?.owner?.from?.login || owner;
@@ -139,8 +140,8 @@ const handleInstallationWebhookEvent = async (event: string | null, data: any) =
           db.delete(collaboratorTable).where(
             eq(collaboratorTable.repoId, repoId),
           ),
-          clearFileCache(oldOwner, repoName),
-          deleteCacheFileMeta(oldOwner, repoName),
+          clearFileCache(db, oldOwner, repoName),
+          deleteCacheFileMeta(db, oldOwner, repoName),
         ]);
       } else if (data.action === "renamed") {
         const oldName = data.changes?.repository?.name?.from;
@@ -155,7 +156,7 @@ const handleInstallationWebhookEvent = async (event: string | null, data: any) =
           }).where(
             eq(collaboratorTable.repoId, repoId),
           ),
-          updateFileCacheRepository(owner, oldName, repoName),
+          updateFileCacheRepository(db, owner, oldName, repoName),
         ]);
       }
       return true;
@@ -180,7 +181,7 @@ const handleInstallationWebhookEvent = async (event: string | null, data: any) =
           }).where(
             eq(collaboratorTable.ownerId, accountId),
           ),
-          updateFileCacheOwner(oldOwner, newOwner),
+          updateFileCacheOwner(db, oldOwner, newOwner),
         ]);
         return true;
       }
@@ -198,8 +199,8 @@ const handleInstallationWebhookEvent = async (event: string | null, data: any) =
           return true;
         }
 
-        await clearFileCache(deleteOwner, deleteRepo, deleteBranch);
-        await deleteCacheFileMeta(deleteOwner, deleteRepo, deleteBranch);
+        await clearFileCache(db, deleteOwner, deleteRepo, deleteBranch);
+        await deleteCacheFileMeta(db, deleteOwner, deleteRepo, deleteBranch);
         return true;
       }
 

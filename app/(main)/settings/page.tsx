@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import { and, eq } from "drizzle-orm";
-import { auth } from "@/lib/auth";
-import { db } from "@/db";
 import { accountTable } from "@/db/schema";
+import { getRequestContext } from "@/lib/request-context";
 import { MainRootLayout } from "../main-root-layout";
 import { Installations } from "@/components/settings/installations";
 import { Identities } from "@/components/settings/identities";
@@ -21,6 +20,7 @@ import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default async function Page() {
+  const { db, auth } = getRequestContext();
   const session = await auth.api.getSession({
     headers: await headers(),
   });

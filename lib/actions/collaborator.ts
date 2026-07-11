@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import type { Db } from "@/db";
 import { getInstallationRepos, getInstallations } from "@/lib/github-app";
 import { requireGithubRepoWriteAccess } from "@/lib/authz-server";
 import { InviteEmailTemplate } from "@/components/email/invite";
@@ -9,12 +9,12 @@ import { CollaboratorAddedEmailTemplate } from "@/components/email/collaborator-
 import { render } from "@react-email/render";
 import { sendEmail } from "@/lib/mailer";
 import { getBaseUrl } from "@/lib/base-url";
-import { db } from "@/db";
 import { and, eq, sql } from "drizzle-orm";
 import { collaboratorInviteTable, collaboratorTable } from "@/db/schema";
 import { z } from "zod";
 import { randomBytes } from "crypto";
 import { findVerifiedUserByEmail, normalizeEmail } from "@/lib/collaborator-access";
+import { getRequestContext } from "@/lib/request-context";
 
 const parseInviteEmails = (raw: FormDataEntryValue | null) => {
   const value = typeof raw === "string" ? raw : "";
@@ -28,11 +28,13 @@ const parseInviteEmails = (raw: FormDataEntryValue | null) => {
 };
 
 const assertRepoInInstallation = async (
+  db: Db,
   user: { id: string; githubUsername?: string | null },
   owner: string,
   repo: string
 ) => {
   const { token, repoAccess } = await requireGithubRepoWriteAccess(
+    db,
     user,
     owner,
     repo,
@@ -68,17 +70,20 @@ const generateInviteToken = () => {
   return token;
 };
 
-const createCollaboratorInviteUrl = async ({
-  email,
-  owner,
-  repo,
-  baseUrl,
-}: {
-  email: string;
-  owner: string;
-  repo: string;
-  baseUrl: string;
-}) => {
+const createCollaboratorInviteUrl = async (
+  db: Db,
+  {
+    email,
+    owner,
+    repo,
+    baseUrl,
+  }: {
+    email: string;
+    owner: string;
+    repo: string;
+    baseUrl: string;
+  },
+) => {
   const token = generateInviteToken();
   const expiresAt = new Date(
     Date.now() + ((Number(process.env.COLLABORATOR_INVITE_LINK_EXPIRES_IN) || 86400) * 1000),
@@ -111,6 +116,7 @@ const createCollaboratorInviteUrl = async ({
 // Invite a collaborator to a repository.
 const handleAddCollaborator = async (prevState: any, formData: FormData) => {
 	try {
+		const { db, auth } = getRequestContext();
 		// TODO: remove the requirement for Github account, let any collaborator invite others
 		const session = await auth.api.getSession({
       headers: await headers(),
@@ -135,7 +141,7 @@ const handleAddCollaborator = async (prevState: any, formData: FormData) => {
 		if (!emailsValidation.success || emailsValidation.data.length === 0) throw new Error("Invalid email list");
     const emails = emailsValidation.data;
 
-    const { repoAccess, installation } = await assertRepoInInstallation(user, owner, repo);
+    const { repoAccess, installation } = await assertRepoInInstallation(db, user, owner, repo);
 
 		const baseUrl = getBaseUrl();
     const repoUrl = new URL(`/${owner}/${repo}`, baseUrl).toString();
@@ -146,7 +152,7 @@ const handleAddCollaborator = async (prevState: any, formData: FormData) => {
 
     for (const email of emails) {
       const normalizedEmail = normalizeEmail(email);
-      const existingUser = await findVerifiedUserByEmail(normalizedEmail);
+      const existingUser = await findVerifiedUserByEmail(db, normalizedEmail);
       const collaborator = await db.query.collaboratorTable.findFirst({
 				where: and(
         eq(collaboratorTable.ownerId, repoAccess.ownerId),
@@ -170,7 +176,7 @@ const handleAddCollaborator = async (prevState: any, formData: FormData) => {
       }
 
       if (!existingUser) {
-        const inviteUrl = await createCollaboratorInviteUrl({
+        const inviteUrl = await createCollaboratorInviteUrl(db, {
           email: normalizedEmail,
           owner,
           repo,
@@ -265,6 +271,7 @@ const handleAddCollaborator = async (prevState: any, formData: FormData) => {
 // Remove a collaborator from a repository.
 const handleRemoveCollaborator = async (collaboratorId: number, owner: string, repo: string) => {
 	try {
+		const { db, auth } = getRequestContext();
 		const session = await auth.api.getSession({
       headers: await headers(),
     });
@@ -274,7 +281,7 @@ const handleRemoveCollaborator = async (collaboratorId: number, owner: string, r
 		const collaborator = await db.query.collaboratorTable.findFirst({ where: eq(collaboratorTable.id, collaboratorId) });
 		if (!collaborator) throw new Error("Collaborator not found");
 
-    const { repoAccess } = await assertRepoInInstallation(user, owner, repo);
+    const { repoAccess } = await assertRepoInInstallation(db, user, owner, repo);
 
 		const deletedCollaborator = await db.delete(collaboratorTable).where(
 			and(
@@ -304,12 +311,13 @@ const handleRemoveCollaborator = async (collaboratorId: number, owner: string, r
 
 const handleResendCollaboratorInvite = async (collaboratorId: number, owner: string, repo: string) => {
   try {
+    const { db, auth } = getRequestContext();
     const session = await auth.api.getSession({
       headers: await headers(),
     });
     const user = session?.user;
     if (!user) throw new Error("You must be signed in with GitHub to resend collaborator invites.");
-    await assertRepoInInstallation(user, owner, repo);
+    await assertRepoInInstallation(db, user, owner, repo);
 
     const collaborator = await db.query.collaboratorTable.findFirst({ where: eq(collaboratorTable.id, collaboratorId) });
     if (!collaborator) throw new Error("Collaborator not found");
@@ -319,7 +327,7 @@ const handleResendCollaboratorInvite = async (collaboratorId: number, owner: str
     }
 
     const baseUrl = getBaseUrl();
-    const inviteUrl = await createCollaboratorInviteUrl({
+    const inviteUrl = await createCollaboratorInviteUrl(db, {
       email: collaborator.email,
       owner,
       repo,

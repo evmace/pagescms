@@ -1,5 +1,4 @@
 import { and, eq, sql } from "drizzle-orm";
-import { db } from "@/db";
 import { cacheFileTable, cachePermissionTable, configTable } from "@/db/schema";
 import { requireGithubRepoWriteAccess } from "@/lib/authz-server";
 import {
@@ -13,6 +12,7 @@ import { createHttpError, toErrorResponse } from "@/lib/api-error";
 import { isCacheEnabled } from "@/lib/config";
 import { getBranchHeadSha } from "@/lib/github-cache-file";
 import { requireApiUserSession } from "@/lib/session-server";
+import { getRequestContext } from "@/lib/request-context";
 
 export async function GET(
   _request: Request,
@@ -20,10 +20,12 @@ export async function GET(
 ) {
   try {
     const params = await context.params;
-    const sessionResult = await requireApiUserSession();
+    const { db, auth } = getRequestContext();
+    const sessionResult = await requireApiUserSession(auth);
     if ("response" in sessionResult) return sessionResult.response;
 
     const { token } = await requireGithubRepoWriteAccess(
+      db,
       sessionResult.user,
       params.owner,
       params.repo,
@@ -31,6 +33,7 @@ export async function GET(
     );
 
     const config = await getConfig(
+      db,
       params.owner,
       params.repo,
       params.branch,
@@ -45,8 +48,8 @@ export async function GET(
     }
 
     // Keep DB access mostly sequential to avoid spiking pool usage on the cache dashboard.
-    const meta = await getCacheFileMeta(params.owner, params.repo, params.branch);
-    const metaEntries = await listCacheFileMeta(params.owner, params.repo, params.branch);
+    const meta = await getCacheFileMeta(db, params.owner, params.repo, params.branch);
+    const metaEntries = await listCacheFileMeta(db, params.owner, params.repo, params.branch);
     const folderMeta = metaEntries.filter((entry) => entry.context !== "branch");
     const fileCountResult = await db
       .select({ count: sql<number>`count(*)` })
@@ -108,10 +111,12 @@ export async function POST(
     const body = (await request.json()) as { action?: string };
     const action = body?.action || "";
 
-    const sessionResult = await requireApiUserSession();
+    const { db, auth } = getRequestContext();
+    const sessionResult = await requireApiUserSession(auth);
     if ("response" in sessionResult) return sessionResult.response;
 
     const { token } = await requireGithubRepoWriteAccess(
+      db,
       sessionResult.user,
       params.owner,
       params.repo,
@@ -119,6 +124,7 @@ export async function POST(
     );
 
     const config = await getConfig(
+      db,
       params.owner,
       params.repo,
       params.branch,
@@ -134,7 +140,7 @@ export async function POST(
 
     switch (action) {
       case "reconcile-file-cache":
-        await ensureFileCacheFreshness(params.owner, params.repo, params.branch, token, {
+        await ensureFileCacheFreshness(db, params.owner, params.repo, params.branch, token, {
           force: true,
         });
         return Response.json({
@@ -142,9 +148,9 @@ export async function POST(
           message: "File cache reconciled.",
         });
       case "clear-file-cache":
-        await clearFileCache(params.owner, params.repo, params.branch);
-        await deleteCacheFileMeta(params.owner, params.repo, params.branch);
-        await upsertCacheFileMeta(params.owner, params.repo, params.branch, {
+        await clearFileCache(db, params.owner, params.repo, params.branch);
+        await deleteCacheFileMeta(db, params.owner, params.repo, params.branch);
+        await upsertCacheFileMeta(db, params.owner, params.repo, params.branch, {
           commitSha: null,
           status: "ok",
           error: null,
@@ -154,13 +160,14 @@ export async function POST(
           message: "File cache cleared.",
         });
       case "clear-permission-cache":
-        await clearPermissionCache(params.owner, params.repo);
+        await clearPermissionCache(db, params.owner, params.repo);
         return Response.json({
           status: "success",
           message: "Permission cache cleared.",
         });
       case "refresh-config":
         await getConfig(
+          db,
           params.owner,
           params.repo,
           params.branch,
@@ -189,14 +196,14 @@ export async function POST(
           message: "Config cache cleared.",
         });
       case "clear-all-cache":
-        await clearFileCache(params.owner, params.repo, params.branch);
-        await deleteCacheFileMeta(params.owner, params.repo, params.branch);
-        await upsertCacheFileMeta(params.owner, params.repo, params.branch, {
+        await clearFileCache(db, params.owner, params.repo, params.branch);
+        await deleteCacheFileMeta(db, params.owner, params.repo, params.branch);
+        await upsertCacheFileMeta(db, params.owner, params.repo, params.branch, {
           commitSha: null,
           status: "ok",
           error: null,
         });
-        await clearPermissionCache(params.owner, params.repo);
+        await clearPermissionCache(db, params.owner, params.repo);
         await db
           .delete(configTable)
           .where(

@@ -3,7 +3,7 @@ import { desc, eq, or, sql } from "drizzle-orm";
 import { ArrowLeft, RefreshCcw } from "lucide-react";
 import { MainRootLayout } from "../main-root-layout";
 import { requireAdminSession } from "@/lib/admin";
-import { db } from "@/db";
+import { getRequestContext } from "@/lib/request-context";
 import {
   accountTable,
   cacheFileMetaTable,
@@ -104,7 +104,8 @@ export default async function Page({
 }: {
   searchParams?: Promise<{ q?: string; page?: string }>;
 }) {
-  await requireAdminSession();
+  const { db, auth } = getRequestContext();
+  await requireAdminSession(auth);
   const nowMs = Date.now();
   const resolvedSearchParams = await searchParams;
   const query = resolvedSearchParams?.q?.trim() ?? "";

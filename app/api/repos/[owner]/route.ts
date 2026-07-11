@@ -1,7 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createOctokitInstance } from "@/lib/utils/octokit";
 import { getInstallations, getInstallationRepos } from "@/lib/github-app";
-import { db } from "@/db";
 import { and, sql } from "drizzle-orm";
 import { collaboratorTable } from "@/db/schema";
 import { getGithubAccount } from "@/lib/github-account";
@@ -9,6 +8,7 @@ import { hasGithubIdentity } from "@/lib/authz-shared";
 import { toErrorResponse } from "@/lib/api-error";
 import { requireApiUserSession } from "@/lib/session-server";
 import { collaboratorMatchesUser } from "@/lib/collaborator-access";
+import { getRequestContext } from "@/lib/request-context";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +26,8 @@ export async function GET(
 ) {
   try {
     const params = await context.params;
-    const sessionResult = await requireApiUserSession();
+    const { db, auth } = getRequestContext();
+    const sessionResult = await requireApiUserSession(auth);
     if ("response" in sessionResult) return sessionResult.response;
     const user = sessionResult.user;
 
@@ -36,7 +37,7 @@ export async function GET(
     const searchParams = request.nextUrl.searchParams;
     const type = searchParams.get("type");
 
-    const githubAccount = await getGithubAccount(user.id);
+    const githubAccount = await getGithubAccount(db, user.id);
     if (githubAccount?.accessToken && hasGithubIdentity(user)) {
       const token = githubAccount.accessToken;
 

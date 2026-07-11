@@ -2,6 +2,7 @@ import { getRepoReadContext } from "@/lib/api-repo-context";
 import { getFileExtension, normalizePath } from "@/lib/utils/file";
 import { getMediaCache } from "@/lib/github-cache-file";
 import { createHttpError, toErrorResponse } from "@/lib/api-error";
+import { getRequestContext } from "@/lib/request-context";
 
 /**
  * Get the list of media files in a directory.
@@ -17,7 +18,8 @@ export async function GET(
 ) {
   try {
     const params = await context.params;
-    const { token, config } = await getRepoReadContext(params);
+    const { db, auth } = getRequestContext();
+    const { token, config } = await getRepoReadContext(db, auth, params);
     
     const mediaConfig = config.object.media.find((item: any) => item.name === params.name) || config.object.media[0];
 
@@ -39,7 +41,7 @@ export async function GET(
 
     let results;
     try {
-      results = await getMediaCache(params.owner, params.repo, params.branch, normalizedPath, token, !!nocache);
+      results = await getMediaCache(db, params.owner, params.repo, params.branch, normalizedPath, token, !!nocache);
     } catch (error: any) {
       if (error?.status === 404) {
         results = [];

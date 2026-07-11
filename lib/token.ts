@@ -6,7 +6,7 @@ import { cache } from "react";
 import { App } from "@octokit/app";
 import { decrypt, encrypt } from "@/lib/crypto";
 import { createOctokitInstance } from "@/lib/utils/octokit";
-import { db } from "@/db";
+import type { Db } from "@/db";
 import {
   githubInstallationTokenTable
 } from "@/db/schema";
@@ -20,12 +20,13 @@ const installationTokenRefreshInFlight = new Map<number, Promise<string>>();
 
 // Get a token for a user (including collagborators who need to provide an owner/repo scope).
 const getToken = cache(async (
+  db: Db,
   user: User,
   owner: string,
   repo: string,
   verifyGithubAccess: boolean = false,
 ) => {
-  const githubAccount = await getGithubAccount(user.id);
+  const githubAccount = await getGithubAccount(db, user.id);
   if (githubAccount?.accessToken) {
     const hasGithubAccess = await canAccessRepoWithToken(githubAccount.accessToken, owner, repo);
     if (hasGithubAccess) return {
@@ -38,7 +39,7 @@ const getToken = cache(async (
     where: collaboratorMatchesUserForRepo(user, owner, repo),
   });
   if (permission) {
-    const installationToken = await getInstallationToken(owner, repo);
+    const installationToken = await getInstallationToken(db, owner, repo);
 
     return {
       token: installationToken,
@@ -60,7 +61,7 @@ const getToken = cache(async (
 });
 
 // Get the GitHub App installation token for a specific repository.
-const getInstallationToken = cache(async (owner: string, repo: string) => {
+const getInstallationToken = cache(async (db: Db, owner: string, repo: string) => {
   const app = new App({
     appId: process.env.GITHUB_APP_ID!,
     privateKey: process.env.GITHUB_APP_PRIVATE_KEY!,
@@ -135,8 +136,8 @@ const getInstallationToken = cache(async (owner: string, repo: string) => {
 });
 
 // Get the GitHub user token.
-const getUserToken = cache(async (userId: string) => {
-  const githubAccount = await getGithubAccount(userId);
+const getUserToken = cache(async (db: Db, userId: string) => {
+  const githubAccount = await getGithubAccount(db, userId);
   if (!githubAccount?.accessToken) throw new Error(`GitHub token not found for user ${userId}.`);
 
   return githubAccount.accessToken;

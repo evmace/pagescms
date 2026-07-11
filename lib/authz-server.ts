@@ -1,25 +1,28 @@
 import "server-only";
 
+import type { Db } from "@/db";
 import type { User } from "@/types/user";
 import { assertGithubIdentity } from "@/lib/authz-shared";
 import { getUserToken } from "@/lib/token";
 import { createOctokitInstance } from "@/lib/utils/octokit";
 
 const requireGithubUserToken = async (
+  db: Db,
   user: Pick<User, "id" | "githubUsername">,
   identityErrorMessage = "Only GitHub users can perform this action.",
 ) => {
   assertGithubIdentity(user, identityErrorMessage);
-  return getUserToken(user.id);
+  return getUserToken(db, user.id);
 };
 
 const requireGithubRepoWriteAccess = async (
+  db: Db,
   user: Pick<User, "id" | "githubUsername">,
   owner: string,
   repo: string,
   identityErrorMessage = "Only GitHub users can perform this action.",
 ) => {
-  const token = await requireGithubUserToken(user, identityErrorMessage);
+  const token = await requireGithubUserToken(db, user, identityErrorMessage);
   const octokit = createOctokitInstance(token);
   const response = await octokit.rest.repos.get({ owner, repo });
 

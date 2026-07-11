@@ -1,7 +1,7 @@
 import "server-only";
 
 import { and, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
-import { db } from "@/db";
+import type { Db } from "@/db";
 import { cacheFileMetaTable } from "@/db/schema";
 
 type CacheMetaScope = {
@@ -20,6 +20,7 @@ const CACHE_META_SYNC_STALE_MS = parseInt(
 );
 
 const upsertCacheFileMeta = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -69,6 +70,7 @@ const upsertCacheFileMeta = async (
 };
 
 const getCacheFileMeta = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -87,6 +89,7 @@ const getCacheFileMeta = async (
 };
 
 const tryClaimCacheFileMeta = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -158,6 +161,7 @@ const tryClaimCacheFileMeta = async (
 };
 
 const deleteCacheFileMeta = async (
+  db: Db,
   owner: string,
   repo?: string,
   branch?: string,
@@ -191,6 +195,7 @@ const deleteCacheFileMeta = async (
 };
 
 const deleteCacheFileMetaByPaths = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -210,6 +215,7 @@ const deleteCacheFileMetaByPaths = async (
 };
 
 const listCacheFileMeta = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,

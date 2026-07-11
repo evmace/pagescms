@@ -1,8 +1,10 @@
 import { after } from "next/server";
 import crypto from "crypto";
+import type { Db } from "@/db";
 import { handleActionWebhookEvent } from "@/lib/github-webhook-actions";
 import { handleInstallationWebhookEvent } from "@/lib/github-webhook-installation";
 import { handlePushWebhookEvent } from "@/lib/github-webhook-push";
+import { getRequestContext } from "@/lib/request-context";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -17,10 +19,10 @@ export const maxDuration = 60;
  * 
  * Requires GitHub App webhook secret and signature.
  */
-const processWebhookEvent = async (event: string | null, data: any) => {
-  if (await handleInstallationWebhookEvent(event, data)) return;
-  if (await handlePushWebhookEvent(event, data)) return;
-  if (await handleActionWebhookEvent(event, data)) return;
+const processWebhookEvent = async (db: Db, event: string | null, data: any) => {
+  if (await handleInstallationWebhookEvent(db, event, data)) return;
+  if (await handlePushWebhookEvent(db, event, data)) return;
+  if (await handleActionWebhookEvent(db, event, data)) return;
 };
 
 export async function POST(request: Request) {
@@ -51,10 +53,11 @@ export async function POST(request: Request) {
     }
 
     const data = JSON.parse(body);
+    const { db } = getRequestContext();
 
     after(async () => {
       try {
-        await processWebhookEvent(event, data);
+        await processWebhookEvent(db, event, data);
       } catch (error: any) {
         console.error("Error in Webhook", {
           error,

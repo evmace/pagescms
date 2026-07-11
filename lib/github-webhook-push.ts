@@ -1,4 +1,4 @@
-import { db } from "@/db";
+import type { Db } from "@/db";
 import { configTable } from "@/db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { configVersion, normalizeConfig, parseConfig } from "@/lib/config";
@@ -19,7 +19,7 @@ const WEBHOOK_PUSH_SCOPED_INVALIDATION_MAX_FILES = Number.parseInt(
   10,
 );
 
-const deleteConfigCacheForBranch = async (owner: string, repo: string, branch: string) => {
+const deleteConfigCacheForBranch = async (db: Db, owner: string, repo: string, branch: string) => {
   await db.delete(configTable).where(
     and(
       sql`lower(${configTable.owner}) = lower(${owner})`,
@@ -29,7 +29,7 @@ const deleteConfigCacheForBranch = async (owner: string, repo: string, branch: s
   );
 };
 
-const handlePushWebhookEvent = async (event: string | null, data: any) => {
+const handlePushWebhookEvent = async (db: Db, event: string | null, data: any) => {
   if (event !== "push") return false;
   if (data.deleted === true) return true;
 
@@ -97,16 +97,16 @@ const handlePushWebhookEvent = async (event: string | null, data: any) => {
       threshold: WEBHOOK_PUSH_SCOPED_INVALIDATION_MAX_FILES,
     });
 
-    await clearFileCache(pushOwner, pushRepo, pushBranch);
-    await deleteCacheFileMeta(pushOwner, pushRepo, pushBranch);
-    await upsertCacheFileMeta(pushOwner, pushRepo, pushBranch, {
+    await clearFileCache(db, pushOwner, pushRepo, pushBranch);
+    await deleteCacheFileMeta(db, pushOwner, pushRepo, pushBranch);
+    await upsertCacheFileMeta(db, pushOwner, pushRepo, pushBranch, {
       commitSha: commit.sha,
       status: "ok",
       error: null,
     });
 
     if (configChanged) {
-      await deleteConfigCacheForBranch(pushOwner, pushRepo, pushBranch);
+      await deleteConfigCacheForBranch(db, pushOwner, pushRepo, pushBranch);
     }
     return true;
   }
@@ -120,23 +120,24 @@ const handlePushWebhookEvent = async (event: string | null, data: any) => {
       threshold: WEBHOOK_PUSH_INCREMENTAL_MAX_FILES,
     });
 
-    await clearScopedFileCache(pushOwner, pushRepo, pushBranch, uniqueChangedPaths);
-    await deleteCacheFileMeta(pushOwner, pushRepo, pushBranch);
-    await upsertCacheFileMeta(pushOwner, pushRepo, pushBranch, {
+    await clearScopedFileCache(db, pushOwner, pushRepo, pushBranch, uniqueChangedPaths);
+    await deleteCacheFileMeta(db, pushOwner, pushRepo, pushBranch);
+    await upsertCacheFileMeta(db, pushOwner, pushRepo, pushBranch, {
       commitSha: commit.sha,
       status: "ok",
       error: null,
     });
 
     if (configChanged) {
-      await deleteConfigCacheForBranch(pushOwner, pushRepo, pushBranch);
+      await deleteConfigCacheForBranch(db, pushOwner, pushRepo, pushBranch);
     }
     return true;
   }
 
-  const installationToken = await getInstallationToken(pushOwner, pushRepo);
+  const installationToken = await getInstallationToken(db, pushOwner, pushRepo);
 
   await updateMultipleFilesCache(
+    db,
     pushOwner,
     pushRepo,
     pushBranch,
@@ -152,7 +153,7 @@ const handlePushWebhookEvent = async (event: string | null, data: any) => {
       : undefined,
   );
 
-  await upsertCacheFileMeta(pushOwner, pushRepo, pushBranch, {
+  await upsertCacheFileMeta(db, pushOwner, pushRepo, pushBranch, {
     commitSha: commit.sha,
     status: "ok",
     error: null,
@@ -161,7 +162,7 @@ const handlePushWebhookEvent = async (event: string | null, data: any) => {
   if (!configChanged) return true;
 
   if (configRemoved) {
-    await deleteConfigCacheForBranch(pushOwner, pushRepo, pushBranch);
+    await deleteConfigCacheForBranch(db, pushOwner, pushRepo, pushBranch);
     return true;
   }
 
@@ -206,9 +207,9 @@ const handlePushWebhookEvent = async (event: string | null, data: any) => {
   };
 
   if (existingConfig) {
-    await updateConfig(nextConfig);
+    await updateConfig(db, nextConfig);
   } else {
-    await saveConfig(nextConfig);
+    await saveConfig(db, nextConfig);
   }
 
   return true;

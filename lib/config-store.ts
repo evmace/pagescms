@@ -3,13 +3,14 @@
  */
 
 import { Config } from "@/types/config";
-import { db } from "@/db";
+import type { Db } from "@/db";
 import { configTable } from "@/db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { createOctokitInstance } from "@/lib/utils/octokit";
 import { configVersion, normalizeConfig, parseConfig } from "@/lib/config";
 
 const getConfigFromDb = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -40,6 +41,7 @@ const getConfigFromDb = async (
 };
 
 const saveConfig = async (
+  db: Db,
   config: Config,
 ): Promise<Config> => {
   await db.insert(configTable).values({
@@ -64,6 +66,7 @@ const saveConfig = async (
 }
 
 const updateConfig = async (
+  db: Db,
   config: Config,
 ): Promise<Config> => {
   await db.update(configTable).set({
@@ -83,6 +86,7 @@ const updateConfig = async (
 }
 
 const touchConfigCheck = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -163,6 +167,7 @@ const fetchConfigFromGithub = async (
 };
 
 const getConfig = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -182,7 +187,7 @@ const getConfig = async (
   if (existing) return existing;
 
   const run = (async (): Promise<Config | null> => {
-    const cachedConfig = await getConfigFromDb(normalizedOwner, normalizedRepo, branch);
+    const cachedConfig = await getConfigFromDb(db, normalizedOwner, normalizedRepo, branch);
     if (!sync) {
       if (cachedConfig?.version === configVersion) return cachedConfig;
       if (!resolveToken || !bootstrapOnMiss) return cachedConfig;
@@ -201,7 +206,7 @@ const getConfig = async (
         version: configVersion ?? "0.0",
         object: latest.object,
       };
-      await saveConfig(nextConfig);
+      await saveConfig(db, nextConfig);
       return nextConfig;
     }
 
@@ -238,7 +243,7 @@ const getConfig = async (
             return;
           }
           if (cachedConfig.sha === latest.sha) {
-            await touchConfigCheck(owner, repo, branch);
+            await touchConfigCheck(db, owner, repo, branch);
             return;
           }
           const nextConfig: Config = {
@@ -249,7 +254,7 @@ const getConfig = async (
             version: configVersion ?? "0.0",
             object: latest.object,
           };
-          await updateConfig(nextConfig);
+          await updateConfig(db, nextConfig);
         } catch {
           // Ignore background refresh failures; stale cached config remains usable.
         }
@@ -276,7 +281,7 @@ const getConfig = async (
     }
 
     if (cachedConfig && cachedConfig.version === configVersion && cachedConfig.sha === latest.sha) {
-      await touchConfigCheck(normalizedOwner, normalizedRepo, branch);
+      await touchConfigCheck(db, normalizedOwner, normalizedRepo, branch);
       return {
         ...cachedConfig,
         lastCheckedAt: new Date(),
@@ -293,9 +298,9 @@ const getConfig = async (
     };
 
     if (cachedConfig) {
-      await updateConfig(nextConfig);
+      await updateConfig(db, nextConfig);
     } else {
-      await saveConfig(nextConfig);
+      await saveConfig(db, nextConfig);
     }
 
     return nextConfig;

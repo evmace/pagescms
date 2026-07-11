@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { emailOTP } from "better-auth/plugins";
-import { db } from "@/db";
+import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import { getBaseUrl } from "@/lib/base-url";
 import { repairLegacyGithubStubOnLogin } from "@/lib/github-legacy-stub-repair";
@@ -12,7 +12,8 @@ import { bindCollaboratorInvitesToUser } from "@/lib/collaborator-access";
 import { LoginEmailTemplate } from "@/components/email/login";
 import { render } from "@react-email/render";
 
-export const auth = betterAuth({
+export function createAuth(db: Db) {
+  return betterAuth({
   baseURL: getBaseUrl(),
   secret: (process.env.AUTH_SECRET || process.env.BETTER_AUTH_SECRET) as string,
   user: {
@@ -115,7 +116,7 @@ export const auth = betterAuth({
       create: {
         after: async (session) => {
           try {
-            await repairLegacyGithubStubOnLogin(session.id, session.userId);
+            await repairLegacyGithubStubOnLogin(db, session.id, session.userId);
           } catch (error) {
             console.warn("[auth] legacy github stub repair failed", {
               sessionId: session.id,
@@ -125,7 +126,7 @@ export const auth = betterAuth({
           }
 
           try {
-            await syncGithubProfileOnLogin(session.userId);
+            await syncGithubProfileOnLogin(db, session.userId);
           } catch (error) {
             console.warn("[auth] github profile sync failed", {
               sessionId: session.id,
@@ -139,7 +140,7 @@ export const auth = betterAuth({
               where: (table, { eq }) => eq(table.id, session.userId),
             });
             if (user) {
-              await bindCollaboratorInvitesToUser(user);
+              await bindCollaboratorInvitesToUser(db, user);
             }
           } catch (error) {
             console.warn("[auth] collaborator invite binding failed", {
@@ -181,4 +182,7 @@ export const auth = betterAuth({
       },
     }),
   ],
-});
+  });
+}
+
+export type Auth = ReturnType<typeof createAuth>;

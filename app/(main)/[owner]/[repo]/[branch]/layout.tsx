@@ -8,6 +8,7 @@ import { getToken } from "@/lib/token";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
+import { getRequestContext } from "@/lib/request-context";
 
 export default async function Layout({
   children,
@@ -18,7 +19,8 @@ export default async function Layout({
 }) {
   const { owner, repo, branch } = await params;
   const requestHeaders = await headers();
-  const session = await getServerSession();
+  const { db, auth } = getRequestContext();
+  const session = await getServerSession(auth);
   const user = session?.user;
   const returnTo = requestHeaders.get("x-return-to");
   const signInUrl =
@@ -41,8 +43,9 @@ export default async function Layout({
   let errorMessage = null;
 
   try {
-    const { token } = await getToken(user, owner, repo);
+    const { token } = await getToken(db, user, owner, repo);
     const syncedConfig = await getConfig(
+      db,
       owner,
       repo,
       decodedBranch,

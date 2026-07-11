@@ -14,6 +14,7 @@ import { createHttpError, toErrorResponse } from "@/lib/api-error";
 import mergeWith from "lodash.mergewith";
 import { buildCommitTokens, resolveCommitIdentity, resolveCommitMessage } from "@/lib/commit-message";
 import { requireApiUserSession } from "@/lib/session-server";
+import { getRequestContext } from "@/lib/request-context";
 
 /**
  * Create, update and delete individual files in a GitHub repository.
@@ -30,16 +31,17 @@ export async function POST(
 ) {
   try {
     const params = await context.params;
-    const sessionResult = await requireApiUserSession();
+    const { db, auth } = getRequestContext();
+    const sessionResult = await requireApiUserSession(auth);
     if ("response" in sessionResult) return sessionResult.response;
     const user = sessionResult.user;
 
-    const { token } = await getToken(user, params.owner, params.repo, true);
+    const { token } = await getToken(db, user, params.owner, params.repo, true);
     if (!token) throw new Error("Token not found");
 
     const normalizedPath = normalizePath(params.path);
 
-    const config = await getConfig(params.owner, params.repo, params.branch, {
+    const config = await getConfig(db, params.owner, params.repo, params.branch, {
       getToken: async () => token,
     });
     if (!config && normalizedPath !== ".pages.yml") throw new Error(`Configuration not found for ${params.owner}/${params.repo}/${params.branch}.`);
@@ -242,12 +244,13 @@ export async function POST(
         object: configObject
       };
       
-      await updateConfig(newConfig);
+      await updateConfig(db, newConfig);
     }
     
     if (response?.data.content && response?.data.commit) {
       // If the file is successfully saved, update the cache
       await updateFileCache(
+        db,
         data.type === 'content' ? 'collection' : 'media',
         params.owner,
         params.repo,
@@ -452,11 +455,12 @@ export async function DELETE(
 ) {
   try {
     const params = await context.params;
-    const sessionResult = await requireApiUserSession();
+    const { db, auth } = getRequestContext();
+    const sessionResult = await requireApiUserSession(auth);
     if ("response" in sessionResult) return sessionResult.response;
     const user = sessionResult.user;
 
-    const { token } = await getToken(user, params.owner, params.repo, true);
+    const { token } = await getToken(db, user, params.owner, params.repo, true);
     if (!token) throw new Error("Token not found");
 
     if (!isContentOperationAllowed("delete", { scope: "settings" }) && params.path === ".pages.yml") {
@@ -472,7 +476,7 @@ export async function DELETE(
     if (!name && type === "content") throw new Error(`"name" is required.`);
     if (!sha) throw new Error(`"sha" is required.`);
 
-    const config = await getConfig(params.owner, params.repo, params.branch, {
+    const config = await getConfig(db, params.owner, params.repo, params.branch, {
       getToken: async () => token,
     });
     if (!config) throw new Error(`Configuration not found for ${params.owner}/${params.repo}/${params.branch}.`);
@@ -561,6 +565,7 @@ export async function DELETE(
 
     // Update cache after successful deletion
     await updateFileCache(
+      db,
       type === "content" ? "collection" : "media",
       params.owner,
       params.repo,

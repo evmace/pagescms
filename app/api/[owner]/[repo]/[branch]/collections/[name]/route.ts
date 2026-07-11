@@ -8,6 +8,7 @@ import { getRepoReadContext } from "@/lib/api-repo-context";
 import { normalizePath } from "@/lib/utils/file";
 import { getCollectionCache } from "@/lib/github-cache-file";
 import { createHttpError, toErrorResponse } from "@/lib/api-error";
+import { getRequestContext } from "@/lib/request-context";
 
 /**
  * Fetches and parses collection contents from GitHub repositories
@@ -25,7 +26,8 @@ export async function GET(
 ) {
   try {
     const params = await context.params;
-    const { token, config } = await getRepoReadContext(params);
+    const { db, auth } = getRequestContext();
+    const { token, config } = await getRepoReadContext(db, auth, params);
 
     const schema = getSchemaByName(config.object, params.name);
     if (!schema) throw createHttpError(`Schema not found for ${params.name}.`, 404);
@@ -43,7 +45,7 @@ export async function GET(
       if (normalizedPath !== schema.path) throw createHttpError(`Invalid path "${path}" for collection "${params.name}".`, 400);
     }
 
-    let entries = await getCollectionCache(params.owner, params.repo, params.branch, normalizedPath, token, schema.view?.node?.filename);
+    let entries = await getCollectionCache(db, params.owner, params.repo, params.branch, normalizedPath, token, schema.view?.node?.filename);
     
     let data: {
       contents: Record<string, any>[],

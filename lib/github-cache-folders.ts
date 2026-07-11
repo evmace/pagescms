@@ -1,5 +1,5 @@
 import { and, eq, or, sql } from "drizzle-orm";
-import { db } from "@/db";
+import type { Db } from "@/db";
 import { cacheFileMetaTable, cacheFileTable } from "@/db/schema";
 import {
   deleteCacheFileMetaByPaths,
@@ -29,6 +29,7 @@ const getFolderScope = (context: Exclude<CacheScopeContext, "branch">, folderPat
 });
 
 const upsertScopedMeta = (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -40,13 +41,14 @@ const upsertScopedMeta = (
     error?: string | null;
     lastCheckedAt?: Date;
   } = {},
-) => upsertCacheFileMeta(owner, repo, branch, {
+) => upsertCacheFileMeta(db, owner, repo, branch, {
   ...values,
   path: scope.path,
   context: scope.context,
 });
 
 const waitForScopeAndBranchMeta = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -123,6 +125,7 @@ const getFolderPathsForChanges = (changedPaths: string[]): string[] => {
 };
 
 const invalidateFolderScopes = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -130,10 +133,11 @@ const invalidateFolderScopes = async (
 ) => {
   const normalizedPaths = Array.from(new Set(folderPaths));
   if (normalizedPaths.length === 0) return;
-  await deleteCacheFileMetaByPaths(owner, repo, branch, normalizedPaths);
+  await deleteCacheFileMetaByPaths(db, owner, repo, branch, normalizedPaths);
 };
 
 const withFolderCacheLock = async <T>(
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -158,6 +162,7 @@ const withFolderCacheLock = async <T>(
 };
 
 const markFolderScopeError = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -165,13 +170,14 @@ const markFolderScopeError = async (
   folderPath: string,
   error: string,
 ) => {
-  await upsertScopedMeta(owner, repo, branch, getFolderScope(context, folderPath), {
+  await upsertScopedMeta(db, owner, repo, branch, getFolderScope(context, folderPath), {
     status: "error",
     error,
   });
 };
 
 const claimFolderScopes = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -181,7 +187,7 @@ const claimFolderScopes = async (
   const claimed: string[] = [];
 
   for (const folderPath of [...new Set(folderPaths)].sort()) {
-    const acquired = await tryClaimCacheFileMeta(owner, repo, branch, {
+    const acquired = await tryClaimCacheFileMeta(db, owner, repo, branch, {
       path: folderPath,
       context,
       error: null,
@@ -189,7 +195,7 @@ const claimFolderScopes = async (
 
     if (!acquired) {
       if (claimed.length > 0) {
-        await invalidateFolderScopes(owner, repo, branch, claimed);
+        await invalidateFolderScopes(db, owner, repo, branch, claimed);
       }
       return false;
     }
@@ -287,6 +293,7 @@ const fetchMediaDirectoryEntries = async (
 };
 
 const replaceFolderCache = async (
+  db: Db,
   owner: string,
   repo: string,
   branch: string,
@@ -297,7 +304,7 @@ const replaceFolderCache = async (
   const now = new Date();
   const lowerOwner = owner.toLowerCase();
   const lowerRepo = repo.toLowerCase();
-  const locked = await withFolderCacheLock(owner, repo, branch, scope, async (tx) => {
+  const locked = await withFolderCacheLock(db, owner, repo, branch, scope, async (tx) => {
     await tx.delete(cacheFileTable).where(
       and(
         eq(cacheFileTable.owner, lowerOwner),

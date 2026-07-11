@@ -1,5 +1,5 @@
 import { and, eq, like, ne } from "drizzle-orm";
-import { db } from "@/db";
+import type { Db } from "@/db";
 import { accountTable, collaboratorTable, sessionTable, userTable } from "@/db/schema";
 import { createOctokitInstance } from "@/lib/utils/octokit";
 
@@ -27,6 +27,7 @@ const getVerifiedGithubProfile = async (accessToken: string) => {
 
 // Merge a legacy collaborator stub user into a real signed-in account.
 const mergeUsers = async (
+  db: Db,
   fromUserId: string,
   toUserId: string,
   options?: {
@@ -117,7 +118,7 @@ const mergeUsers = async (
 };
 
 // Repair old collaborator-invite stub accounts created before the current auth flow.
-const repairLegacyGithubStubOnGithubSignIn = async (userId: string) => {
+const repairLegacyGithubStubOnGithubSignIn = async (db: Db, userId: string) => {
   const signedInUser = await db.query.userTable.findFirst({
     where: eq(userTable.id, userId),
   });
@@ -150,7 +151,7 @@ const repairLegacyGithubStubOnGithubSignIn = async (userId: string) => {
     });
 
     if (existingUser) {
-      await mergeUsers(userId, existingUser.id, {
+      await mergeUsers(db, userId, existingUser.id, {
         preferredEmail: existingUser.email,
         emailVerified: existingUser.emailVerified || githubProfile.emailVerified,
       });
@@ -198,15 +199,15 @@ const repairLegacyGithubStubOnGithubSignIn = async (userId: string) => {
     return;
   }
 
-  await mergeUsers(legacyStub.id, userId, {
+  await mergeUsers(db, legacyStub.id, userId, {
     preferredEmail: signedInUser.email,
     emailVerified: signedInUser.emailVerified,
   });
 };
 
-const repairLegacyGithubStubOnLogin = async (_sessionId: string, userId: string) => {
+const repairLegacyGithubStubOnLogin = async (db: Db, _sessionId: string, userId: string) => {
   try {
-    await repairLegacyGithubStubOnGithubSignIn(userId);
+    await repairLegacyGithubStubOnGithubSignIn(db, userId);
   } catch (error) {
     console.warn("[auth] legacy github stub repair failed", {
       userId,

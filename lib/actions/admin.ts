@@ -3,12 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { eq, sql } from "drizzle-orm";
-import { db } from "@/db";
 import { sessionTable } from "@/db/schema";
 import { requireAdminSession } from "@/lib/admin";
+import { getRequestContext } from "@/lib/request-context";
 
 const resetGlobalCache = async () => {
-  await requireAdminSession();
+  const { db, auth } = getRequestContext();
+  await requireAdminSession(auth);
 
   await db.execute(
     sql`TRUNCATE TABLE cache_file, cache_permission, config, cache_file_meta`,
@@ -20,7 +21,8 @@ const resetGlobalCache = async () => {
 };
 
 const logoutUserSessions = async (userId: string) => {
-  const { user } = await requireAdminSession();
+  const { db, auth } = getRequestContext();
+  const { user } = await requireAdminSession(auth);
 
   await db.delete(sessionTable).where(eq(sessionTable.userId, userId));
   revalidatePath("/admin");
@@ -33,7 +35,8 @@ const logoutUserSessions = async (userId: string) => {
 };
 
 const logoutAllUsers = async () => {
-  await requireAdminSession();
+  const { db, auth } = getRequestContext();
+  await requireAdminSession(auth);
 
   await db.delete(sessionTable);
   redirect("/sign-in");
