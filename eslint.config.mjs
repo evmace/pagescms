@@ -1,7 +1,16 @@
-import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
+import { FlatCompat } from "@eslint/eslintrc";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+const compat = new FlatCompat({
+  baseDirectory: path.dirname(fileURLToPath(import.meta.url)),
+});
 
 const config = [
-  ...nextCoreWebVitals,
+  {
+    ignores: [".next/**"],
+  },
+  ...compat.extends("next/core-web-vitals"),
   {
     rules: {
       "react/display-name": "off",
