@@ -26,6 +26,10 @@ export const metadata: Metadata = {
     default: "Pages CMS",
   },
   description,
+  robots: {
+    index: false,
+    follow: false,
+  },
   alternates: {
     canonical: "/",
   },
