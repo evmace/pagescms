@@ -977,6 +977,58 @@ export function Collection({ name, path }: { name: string; path?: string }) {
     header: headerNode,
   });
 
+  // Optional opt-in (view.nestBy: "<reference field name>") that nests each
+  // entry under the sibling its reference field points to, reusing the
+  // existing depth/indentation rendering built for the folder-tree layout --
+  // see defaultExpandAll below, which keeps these groups permanently open.
+  const nestedData = useMemo(() => {
+    const nestBy = schema.view?.nestBy;
+    if (!nestBy || !Array.isArray(data) || data.length === 0) return data;
+
+    const normalizeRef = (raw: unknown): string => {
+      if (raw == null) return "";
+      if (["string", "number", "boolean"].includes(typeof raw)) return String(raw);
+      if (typeof raw === "object" && "value" in (raw as Record<string, unknown>)) {
+        return String((raw as Record<string, unknown>).value ?? "");
+      }
+      return "";
+    };
+    const getSlug = (item: any) =>
+      typeof item?.name === "string" ? item.name.replace(/\.[^./]+$/, "") : "";
+
+    const bySlug = new Map<string, any>();
+    data.forEach((item) => {
+      if (item?.type === "file") bySlug.set(getSlug(item), item);
+    });
+
+    const childrenBySlug = new Map<string, any[]>();
+    const nestedPaths = new Set<string>();
+
+    data.forEach((item) => {
+      if (item?.type !== "file") return;
+      const parentSlug = normalizeRef(item?.fields?.[nestBy]);
+      if (!parentSlug) return;
+      const parent = bySlug.get(parentSlug);
+      // No match (orphaned/typo'd reference) or a self-reference: leave this
+      // entry as a normal top-level row rather than dropping it from view.
+      if (!parent || parent === item) return;
+
+      nestedPaths.add(item.path);
+      const siblings = childrenBySlug.get(parentSlug) ?? [];
+      siblings.push(item);
+      childrenBySlug.set(parentSlug, siblings);
+    });
+
+    if (nestedPaths.size === 0) return data;
+
+    return data
+      .filter((item) => !nestedPaths.has(item.path))
+      .map((item) => {
+        const subRows = childrenBySlug.get(getSlug(item));
+        return subRows ? { ...item, subRows } : item;
+      });
+  }, [data, schema.view?.nestBy]);
+
   const isLoading =
     !swrCollectionData && !swrCollectionError && data.length === 0;
 
@@ -1018,7 +1070,7 @@ export function Collection({ name, path }: { name: string; path?: string }) {
   ) : (
     <CollectionTable
       columns={columns}
-      data={data}
+      data={nestedData}
       search={tableSearch}
       setSearch={setTableSearch}
       initialState={initialState}
@@ -1026,6 +1078,7 @@ export function Collection({ name, path }: { name: string; path?: string }) {
       pathname={pathname}
       path={path || schema.path}
       isTree={schema.view?.layout === "tree"}
+      defaultExpandAll={Boolean(schema.view?.nestBy)}
       primaryField={primaryField}
     />
   );

@@ -557,6 +557,11 @@ const ContentLeafSchema = z
               message: "'layout' must be either 'tree' or 'list'.",
             })
             .optional(),
+          nestBy: z
+            .string({
+              message: "'nestBy' must be a string.",
+            })
+            .optional(),
           node: z
             .union(
               [

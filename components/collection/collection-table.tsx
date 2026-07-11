@@ -74,6 +74,7 @@ export function CollectionTable<TData extends TableData>({
   pathname,
   path,
   isTree = false,
+  defaultExpandAll = false,
   primaryField
 }: {
   columns: any[],
@@ -85,9 +86,10 @@ export function CollectionTable<TData extends TableData>({
   pathname: string,
   path: string,
   isTree?: boolean,
+  defaultExpandAll?: boolean,
   primaryField?: string
 }) {
-  const [expanded, setExpanded] = useState<ExpandedState>({});
+  const [expanded, setExpanded] = useState<ExpandedState>(defaultExpandAll ? true : {});
   
   const [loadingRows, setLoadingRows] = useState<Record<string, boolean>>({});
   const loadingPathSetRef = useRef<Set<string>>(new Set());
