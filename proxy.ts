@@ -10,7 +10,7 @@ function isAllowedOrigin(originHeader: string, hostHeader: string): boolean {
 	}
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
 	const pathname = request.nextUrl.pathname;
 	const isStaticAsset =
 		pathname.startsWith("/_next/") ||
