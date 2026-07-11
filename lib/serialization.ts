@@ -95,7 +95,15 @@ const serialize = (contentObject: Record<string, any> = {}, format: SerialFormat
   if (Object.keys(contentObject).length === 0) return ""; // Empty object returns an empty string
   switch (format) {
     case "yaml":
-      return YAML.stringify(contentObject);
+      // lineWidth: 0 disables line wrapping -- default 80-char wrapping rewrote
+      // every long string on each save, producing noisy diffs unrelated to the
+      // actual edit. defaultStringType/defaultKeyType match this repo's
+      // original style: quoted string values, plain (unquoted) keys.
+      return YAML.stringify(contentObject, {
+        lineWidth: 0,
+        defaultStringType: "QUOTE_DOUBLE",
+        defaultKeyType: "PLAIN",
+      });
     case "json":
       return JSON.stringify(contentObject, null, 2);
     case "toml":
