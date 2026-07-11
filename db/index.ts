@@ -7,7 +7,9 @@ export function createDb(connectionString: string) {
   const client = postgres(connectionString, {
     max: parseInt(process.env.POSTGRES_MAX_CONNECTIONS || "5", 10),
     fetch_types: false,
-    prepare: true,
+    // Supabase's transaction-mode pooler doesn't support protocol-level
+    // prepared statements across pooled connections.
+    prepare: false,
   });
   return drizzle(client, { schema });
 }

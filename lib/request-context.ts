@@ -1,11 +1,6 @@
 import { createDb, type Db } from "@/db";
 import { createAuth, type Auth } from "@/lib/auth";
 
-// Local/Vercel-style dev reads DATABASE_URL directly. Once deployed to
-// Cloudflare Workers, this becomes the Hyperdrive binding's connectionString
-// instead -- construct fresh per call either way, never cache the result,
-// since a cached client would be a live connection reused across requests
-// (the exact anti-pattern Workers' per-request I/O isolation forbids).
 function getConnectionString(): string {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
@@ -14,8 +9,18 @@ function getConnectionString(): string {
   return connectionString;
 }
 
+// Cached per warm serverless instance and reused across requests -- unlike
+// Cloudflare Workers, Vercel's Node.js runtime allows module-scoped state to
+// persist across invocations on the same instance, and creating a fresh
+// connection pool per request exhausts Supabase's pooler connection cap
+// under any real concurrency.
+let cached: { db: Db; auth: Auth } | undefined;
+
 export function getRequestContext(): { db: Db; auth: Auth } {
-  const db = createDb(getConnectionString());
-  const auth = createAuth(db);
-  return { db, auth };
+  if (!cached) {
+    const db = createDb(getConnectionString());
+    const auth = createAuth(db);
+    cached = { db, auth };
+  }
+  return cached;
 }
