@@ -255,9 +255,10 @@ export function Collection({ name, path }: { name: string; path?: string }) {
   );
   const requestedFieldPaths = useMemo(() => {
     const paths = new Set<string>(["name", "path", primaryField]);
+    if (schema.view?.nestBy) paths.add(schema.view.nestBy);
     viewFields.forEach((item: any) => paths.add(item.path));
     return Array.from(paths);
-  }, [primaryField, viewFields]);
+  }, [primaryField, viewFields, schema.view?.nestBy]);
 
   const handleTableSearchChange = useCallback((value: string) => {
     setTableSearch(value);
