@@ -22,8 +22,8 @@ const description = "The No-Hassle CMS for GitHub";
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
   title: {
-    template: "%s | Pages CMS",
-    default: "Pages CMS",
+    template: "%s | Erik Mace Admin",
+    default: "Erik Mace Admin",
   },
   description,
   robots: {
