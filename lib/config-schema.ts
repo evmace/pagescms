@@ -610,6 +610,12 @@ const ContentLeafSchema = z
             })
             .optional()
             .nullable(),
+          reorder: z
+            .string({
+              message: "'reorder' must be a string.",
+            })
+            .optional()
+            .nullable(),
           sort: z
             .array(
               z.string({

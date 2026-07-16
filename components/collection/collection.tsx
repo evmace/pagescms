@@ -256,9 +256,10 @@ export function Collection({ name, path }: { name: string; path?: string }) {
   const requestedFieldPaths = useMemo(() => {
     const paths = new Set<string>(["name", "path", primaryField]);
     if (schema.view?.nestBy) paths.add(schema.view.nestBy);
+    if (schema.view?.reorder) paths.add(schema.view.reorder);
     viewFields.forEach((item: any) => paths.add(item.path));
     return Array.from(paths);
-  }, [primaryField, viewFields, schema.view?.nestBy]);
+  }, [primaryField, viewFields, schema.view?.nestBy, schema.view?.reorder]);
 
   const handleTableSearchChange = useCallback((value: string) => {
     setTableSearch(value);
@@ -534,6 +535,7 @@ export function Collection({ name, path }: { name: string; path?: string }) {
               );
             },
             sortUndefined: schema.view?.foldersFirst ? "first" : "last",
+            enableSorting: schema.view?.reorder ? false : undefined,
           };
         })
         .filter(Boolean) || [];
@@ -665,6 +667,7 @@ export function Collection({ name, path }: { name: string; path?: string }) {
     schema.view?.foldersFirst,
     schema.view?.layout,
     schema.view?.node?.filename,
+    schema.view?.reorder,
     schema.extension,
     handleConfirmRenameNode,
     canCreate,
@@ -673,6 +676,12 @@ export function Collection({ name, path }: { name: string; path?: string }) {
   ]);
 
   const initialState = useMemo(() => {
+    // Drag-and-drop reordering owns display order entirely (via orderedData
+    // below) -- leaving a column sort active here would fight it.
+    if (schema.view?.reorder) {
+      return { sorting: [], pagination: { pageSize: 25 } };
+    }
+
     const sortId =
       viewFields == null
         ? "name"
@@ -734,6 +743,52 @@ export function Collection({ name, path }: { name: string; path?: string }) {
       }
     },
     [fetchCollectionData],
+  );
+
+  // Called with one sibling group's paths in their new top-to-bottom order.
+  // Applies it optimistically (so the drag settles instantly) and commits it
+  // via the reorder endpoint, rolling back on failure.
+  const handleReorder = useCallback(
+    (orderedPaths: string[]) => {
+      const reorderField = schema.view?.reorder;
+      if (!reorderField) return;
+
+      const orderByPath = new Map(orderedPaths.map((p, index) => [p, index + 1]));
+      let previousSnapshot: any[] | null = null;
+
+      setData((prevData) => {
+        previousSnapshot = prevData;
+
+        const applyOrder = (items: any[]): any[] =>
+          items.map((item: any) => {
+            const newOrder = orderByPath.get(item.path);
+            const updated = newOrder !== undefined
+              ? { ...item, fields: { ...item.fields, [reorderField]: newOrder } }
+              : item;
+            if (Array.isArray(item.subRows)) {
+              return { ...updated, subRows: applyOrder(item.subRows) };
+            }
+            return updated;
+          });
+
+        return applyOrder(prevData);
+      });
+
+      fetch(
+        `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collections/${encodeURIComponent(name)}/reorder`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paths: orderedPaths }),
+        },
+      )
+        .then((response) => requireApiSuccess<any>(response, "Failed to reorder"))
+        .catch((error: any) => {
+          if (previousSnapshot) setData(previousSnapshot);
+          toast.error(error?.message || "Failed to reorder");
+        });
+    },
+    [config.owner, config.repo, config.branch, name, schema.view?.reorder],
   );
 
   const loadingSkeleton = useMemo(
@@ -1030,6 +1085,34 @@ export function Collection({ name, path }: { name: string; path?: string }) {
       });
   }, [data, schema.view?.nestBy]);
 
+  // When drag-and-drop reordering is enabled for this collection, the list's
+  // visual position is the source of truth for order -- sort every group
+  // (top level, and each parent's subRows) by that field, missing/undefined
+  // values last rather than reordering unpredictably.
+  const orderedData = useMemo(() => {
+    const reorderField = schema.view?.reorder;
+    if (!reorderField || !Array.isArray(nestedData) || nestedData.length === 0) {
+      return nestedData;
+    }
+
+    const byOrder = (a: any, b: any) => {
+      const aOrder = a?.fields?.[reorderField];
+      const bOrder = b?.fields?.[reorderField];
+      if (typeof aOrder !== "number" && typeof bOrder !== "number") return 0;
+      if (typeof aOrder !== "number") return 1;
+      if (typeof bOrder !== "number") return -1;
+      return aOrder - bOrder;
+    };
+
+    return [...nestedData]
+      .sort(byOrder)
+      .map((item) =>
+        Array.isArray(item.subRows)
+          ? { ...item, subRows: [...item.subRows].sort(byOrder) }
+          : item,
+      );
+  }, [nestedData, schema.view?.reorder]);
+
   const isLoading =
     !swrCollectionData && !swrCollectionError && data.length === 0;
 
@@ -1071,7 +1154,7 @@ export function Collection({ name, path }: { name: string; path?: string }) {
   ) : (
     <CollectionTable
       columns={columns}
-      data={nestedData}
+      data={orderedData}
       search={tableSearch}
       setSearch={setTableSearch}
       initialState={initialState}
@@ -1081,6 +1164,8 @@ export function Collection({ name, path }: { name: string; path?: string }) {
       isTree={schema.view?.layout === "tree"}
       defaultExpandAll={Boolean(schema.view?.nestBy)}
       primaryField={primaryField}
+      reorderable={Boolean(schema.view?.reorder)}
+      onReorder={handleReorder}
     />
   );
 
