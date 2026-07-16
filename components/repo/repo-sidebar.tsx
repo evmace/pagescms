@@ -71,7 +71,6 @@ import {
   Moon,
   Settings,
   Sun,
-  Users,
 } from "lucide-react";
 
 type NavItem = {
@@ -341,13 +340,6 @@ export function RepoSidebar() {
         label: "Actions",
         href: `/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/actions`,
         icon: <ListVideo className="size-4" />,
-      });
-
-      items.push({
-        key: "admin-collaborators",
-        label: "Collaborators",
-        href: `/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/collaborators`,
-        icon: <Users className="size-4" />,
       });
     }
 
