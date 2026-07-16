@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, cloneElement, useMemo, useCallback, createContext, useContext, useState } from "react";
+import { upload } from "@vercel/blob/client";
 import { useConfig } from "@/contexts/config-context";
 import { getUploadFileName, joinPathSegments } from "@/lib/utils/file";
 import { toast } from "sonner";
@@ -72,24 +73,21 @@ function MediaUploadRoot({ children, path, onUpload, media, extensions, multiple
         );
 
         const uploadPromise = (async () => {
-          const content = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-              const base64Content = (reader.result as string).replace(/^(.+,)/, "");
-              resolve(base64Content);
-            };
-            reader.onerror = () => reject(new Error("Failed to read file"));
-            reader.readAsDataURL(file);
+          const fullPath = joinPathSegments([path ?? "", uploadFilename]);
+
+          const blob = await upload(fullPath, file, {
+            access: "private",
+            handleUploadUrl: `/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/media/upload-token`,
+            clientPayload: JSON.stringify({ name: configMedia.name }),
           });
 
-          const fullPath = joinPathSegments([path ?? "", uploadFilename]);
           const response = await fetch(`/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files/${encodeURIComponent(fullPath)}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               type: "media",
               name: configMedia.name,
-              content,
+              blobUrl: blob.url,
             }),
           });
 

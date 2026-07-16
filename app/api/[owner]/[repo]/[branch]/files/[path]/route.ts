@@ -1,4 +1,5 @@
 import { type NextRequest } from "next/server";
+import { get as getBlob, del as deleteBlob } from "@vercel/blob";
 import { createOctokitInstance } from "@/lib/utils/octokit";
 import { isContentOperationAllowed } from "@/lib/operations";
 import { writeFns } from "@/fields/registry";
@@ -29,6 +30,7 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ owner: string, repo: string, branch: string, path: string }> }
 ) {
+  let uploadedBlobUrl: string | undefined;
   try {
     const params = await context.params;
     const { db, auth } = getRequestContext();
@@ -181,7 +183,19 @@ export async function POST(
             !schema.extensions.includes(getFileExtension(normalizedPath))
           ) throw new Error(`Invalid extension "${getFileExtension(normalizedPath)}" for media.`);
 
-          contentBase64 = data.content;
+          if (data.blobUrl) {
+            // Uploaded straight to Blob storage client-side (bypasses the
+            // 4.5MB Vercel Serverless Function request-body cap); fetch it
+            // here so it can be pushed to GitHub, then discard the temp copy.
+            uploadedBlobUrl = data.blobUrl;
+            const { stream } = await getBlob(data.blobUrl, { access: "private" }) ?? {};
+            if (!stream) throw createHttpError("Uploaded file not found.", 404);
+            const chunks: Uint8Array[] = [];
+            for await (const chunk of stream as any) chunks.push(chunk);
+            contentBase64 = Buffer.concat(chunks).toString("base64");
+          } else {
+            contentBase64 = data.content;
+          }
         }
         break;
       case "settings":
@@ -228,7 +242,15 @@ export async function POST(
         committer,
       }
     );
-  
+
+    if (uploadedBlobUrl) {
+      try {
+        await deleteBlob(uploadedBlobUrl);
+      } catch (cleanupError) {
+        console.error("Failed to delete temporary upload blob", cleanupError);
+      }
+    }
+
     const savedPath = response?.data.content?.path;
 
     let newConfig;
@@ -288,6 +310,13 @@ export async function POST(
     });
   } catch (error: any) {
     console.error(error);
+    if (uploadedBlobUrl) {
+      try {
+        await deleteBlob(uploadedBlobUrl);
+      } catch (cleanupError) {
+        console.error("Failed to delete temporary upload blob", cleanupError);
+      }
+    }
     return toErrorResponse(error);
   }
 };
